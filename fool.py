@@ -6,8 +6,9 @@ import sys
 import argparse
 import os
 import numpy as np
-from data_helper.data_helper import DataHelper
-from data_helper.word_level_process import get_tokenizer
+from read_files import split_imdb_files, split_yahoo_files, split_agnews_files
+from word_level_process import word_process, get_tokenizer
+from char_level_process import char_process
 from neural_networks import word_cnn, char_cnn, bd_lstm, lstm
 from adversarial_tools import ForwardGradWrapper, adversarial_paraphrase
 import tensorflow as tf
@@ -49,19 +50,34 @@ def write_origin_input_texts(origin_input_texts_path, test_texts, test_samples_c
 
 
 def fool_text_classifier():
-    dataset = args.dataset
-    print('dataset: {}; model: {}; level: {}.'.format(dataset, args.model, args.level))
-
     clean_samples_cap = args.clean_samples_cap  # 1000
     print('clean_samples_cap:', clean_samples_cap)
 
     # get tokenizer
+    dataset = args.dataset
     tokenizer = get_tokenizer(dataset)
 
-    # Load and process data set
-    data_helper = DataHelper(dataset, args.level)
-    train_texts, train_labels, test_texts, test_labels = data_helper.load_data()
-    x_train, y_train, x_test, y_test = data_helper.processing(need_shuffle=False)
+    # Read data set
+    x_test = y_test = None
+    test_texts = None
+    if dataset == 'imdb':
+        train_texts, train_labels, test_texts, test_labels = split_imdb_files()
+        if args.level == 'word':
+            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
+        elif args.level == 'char':
+            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
+    elif dataset == 'agnews':
+        train_texts, train_labels, test_texts, test_labels = split_agnews_files()
+        if args.level == 'word':
+            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
+        elif args.level == 'char':
+            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
+    elif dataset == 'yahoo':
+        train_texts, train_labels, test_texts, test_labels = split_yahoo_files()
+        if args.level == 'word':
+            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
+        elif args.level == 'char':
+            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
 
     # Write clean examples into a txt file
     clean_texts_path = r'./fool_result/{}/clean_{}.txt'.format(dataset, str(clean_samples_cap))
@@ -79,9 +95,9 @@ def fool_text_classifier():
         model = char_cnn(dataset)
     elif args.model == "word_lstm":
         model = lstm(dataset)
-    model_filename = r'./runs/{}/{}.dat'.format(dataset, args.model)
-    model.load_weights(model_filename)
-    print('model path:', model_filename)
+    model_path = r'./runs/{}/{}.dat'.format(dataset, args.model)
+    model.load_weights(model_path)
+    print('model path:', model_path)
 
     # evaluate classification accuracy of model on clean samples
     scores_origin = model.evaluate(x_test[:clean_samples_cap], y_test[:clean_samples_cap])
@@ -98,44 +114,42 @@ def fool_text_classifier():
     sub_rate_list = []
     NE_rate_list = []
 
-    adv_text_filename = r'./fool_result/{}/{}/adv_{}.txt'.format(dataset, args.model, str(clean_samples_cap))
-    change_tuple_filename = r'./fool_result/{}/{}/change_tuple_{}.txt'.format(dataset, args.model, str(clean_samples_cap))
-    fool_result_path = os.path.split(adv_text_filename)[0]
-    if not os.path.exists(fool_result_path):
-        os.makedirs(fool_result_path)
-
     start_cpu = time.clock()
-    with open(adv_text_filename, "a") as f1, open(change_tuple_filename, "a") as f2:
-        for index, text in enumerate(test_texts[: clean_samples_cap]):
-            sub_rate = 0
-            NE_rate = 0
-            if np.argmax(y_test[index]) == classes_prediction[index]:
-                # If the ground_true label is the same as the predicted label
-                adv_doc, adv_y, sub_rate, NE_rate, change_tuple_list = adversarial_paraphrase(input_text=text,
-                                                                                              true_y=np.argmax(
-                                                                                                  y_test[index]),
-                                                                                              grad_guide=grad_guide,
-                                                                                              tokenizer=tokenizer,
-                                                                                              dataset=dataset,
-                                                                                              level=args.level)
-                if adv_y != np.argmax(y_test[index]):
-                    successful_perturbations += 1
-                    print('{}. Successful example crafted.'.format(index))
-                else:
-                    failed_perturbations += 1
-                    print('{}. Failure.'.format(index))
+    adv_text_path = r'./fool_result/{}/{}/adv_{}.txt'.format(dataset, args.model, str(clean_samples_cap))
+    change_tuple_path = r'./fool_result/{}/{}/change_tuple_{}.txt'.format(dataset, args.model, str(clean_samples_cap))
+    file_1 = open(adv_text_path, "a")
+    file_2 = open(change_tuple_path, "a")
+    for index, text in enumerate(test_texts[: clean_samples_cap]):
+        sub_rate = 0
+        NE_rate = 0
+        if np.argmax(y_test[index]) == classes_prediction[index]:
+            # If the ground_true label is the same as the predicted label
+            adv_doc, adv_y, sub_rate, NE_rate, change_tuple_list = adversarial_paraphrase(input_text=text,
+                                                                                          true_y=np.argmax(y_test[index]),
+                                                                                          grad_guide=grad_guide,
+                                                                                          tokenizer=tokenizer,
+                                                                                          dataset=dataset,
+                                                                                          level=args.level)
+            if adv_y != np.argmax(y_test[index]):
+                successful_perturbations += 1
+                print('{}. Successful example crafted.'.format(index))
+            else:
+                failed_perturbations += 1
+                print('{}. Failure.'.format(index))
 
-                text = adv_doc
-                sub_rate_list.append(sub_rate)
-                NE_rate_list.append(NE_rate)
-                f2.write(str(index) + str(change_tuple_list) + '\n')
-            f1.write(text + " sub_rate: " + str(sub_rate) + "; NE_rate: " + str(NE_rate) + "\n")
-        end_cpu = time.clock()
-        print('CPU second:', end_cpu - start_cpu)
-        mean_sub_rate = sum(sub_rate_list) / len(sub_rate_list)
-        mean_NE_rate = sum(NE_rate_list) / len(NE_rate_list)
-        print('mean substitution rate:', mean_sub_rate)
-        print('mean NE rate:', mean_NE_rate)
+            text = adv_doc
+            sub_rate_list.append(sub_rate)
+            NE_rate_list.append(NE_rate)
+            file_2.write(str(index) + str(change_tuple_list) + '\n')
+        file_1.write(text + " sub_rate: " + str(sub_rate) + "; NE_rate: " + str(NE_rate) + "\n")
+    end_cpu = time.clock()
+    print('CPU second:', end_cpu - start_cpu)
+    mean_sub_rate = sum(sub_rate_list) / len(sub_rate_list)
+    mean_NE_rate = sum(NE_rate_list) / len(NE_rate_list)
+    print('mean substitution rate:', mean_sub_rate)
+    print('mean NE rate:', mean_NE_rate)
+    file_1.close()
+    file_2.close()
 
 
 if __name__ == '__main__':

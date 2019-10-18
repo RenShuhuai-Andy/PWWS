@@ -1,5 +1,7 @@
 import os
-from data_helper.data_helper import DataHelper
+from read_files import split_imdb_files, split_yahoo_files, split_agnews_files
+from word_level_process import word_process, get_tokenizer
+from char_level_process import char_process
 from neural_networks import word_cnn, char_cnn, bd_lstm, lstm
 import keras
 from keras import backend as K
@@ -31,21 +33,38 @@ parser.add_argument('-l', '--level',
 
 def train_text_classifier():
     dataset = args.dataset
-    data_helper = DataHelper(dataset, args.level)
-    x_train = y_train = x_test = y_test = data_helper.processing()
+    x_train = y_train = x_test = y_test = None
+    if dataset == 'imdb':
+        train_texts, train_labels, test_texts, test_labels = split_imdb_files()
+        if args.level == 'word':
+            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
+        elif args.level == 'char':
+            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
+    elif dataset == 'agnews':
+        train_texts, train_labels, test_texts, test_labels = split_agnews_files()
+        if args.level == 'word':
+            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
+        elif args.level == 'char':
+            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
+    elif dataset == 'yahoo':
+        train_texts, train_labels, test_texts, test_labels = split_yahoo_files()
+        if args.level == 'word':
+            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
+        elif args.level == 'char':
+            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
     x_train, y_train = shuffle(x_train, y_train, random_state=0)
 
     # Take a look at the shapes
-    print('dataset: {}; model: {}; level: {}.'.format(dataset, args.model, args.level))
-    print('x_train:', x_train.shape)
+    print('dataset:', dataset, '; model:', args.model, '; level:', args.level)
+    print('X_train:', x_train.shape)
     print('y_train:', y_train.shape)
-    print('x_test:', x_test.shape)
+    print('X_test:', x_test.shape)
     print('y_test:', y_test.shape)
 
     log_dir = r'./logs/{}/{}/'.format(dataset, args.model)
     tb_callback = keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=True)
 
-    model_filename = r'./runs/{}/{}.dat'.format(dataset, args.model)
+    model_path = r'./runs/{}/{}.dat'.format(dataset, args.model)
     model = batch_size = epochs = None
     assert args.model[:4] == args.level
 
@@ -77,7 +96,7 @@ def train_text_classifier():
     scores = model.evaluate(x_test, y_test)
     print('test_loss: %f, accuracy: %f' % (scores[0], scores[1]))
     print('Saving model weights...')
-    model.save_weights(model_filename)
+    model.save_weights(model_path)
 
 
 if __name__ == '__main__':

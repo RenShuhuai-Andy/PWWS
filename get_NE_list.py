@@ -1,11 +1,14 @@
 # coding: utf-8
+import os
 import numpy as np
 from config import config
 import copy
-from data_helper.read_files import split_imdb_files, split_yahoo_files, split_agnews_files
+import sys
+from read_files import split_imdb_files, split_yahoo_files, split_agnews_files
 import spacy
 import argparse
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 
 nlp = spacy.load('en')
 parser = argparse.ArgumentParser('named entity recognition')

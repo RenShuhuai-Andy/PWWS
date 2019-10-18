@@ -2,12 +2,15 @@ import sys
 import keras
 import spacy
 import numpy as np
+import tensorflow as tf
+import os
 from config import config
 from keras import backend as K
 from paraphrase import _compile_perturbed_tokens, PWWS
-from data_helper.word_level_process import text_to_vector
-from data_helper.char_level_process import doc_process, get_embedding_dict
+from word_level_process import text_to_vector
+from char_level_process import doc_process, get_embedding_dict
 from evaluate_word_saliency import evaluate_word_saliency
+from keras.backend.tensorflow_backend import set_session
 from unbuffered import Unbuffered
 
 sys.stdout = Unbuffered(sys.stdout)
@@ -41,10 +44,6 @@ class ForwardGradWrapper:
         prediction = self.model.predict(input_vector)
         classes = np.argmax(prediction, axis=1)
         return classes
-
-    def get_high_level_pre(self, input_vector):
-        layer_model = keras.models.Model(inputs=self.model.input, outputs=self.model.layers[-1].output)
-        return layer_model.predict(input_vector)
 
 
 def adversarial_paraphrase(input_text, true_y, grad_guide, tokenizer, dataset, level, verbose=True):
