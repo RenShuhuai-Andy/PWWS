@@ -3,9 +3,9 @@ from __future__ import print_function
 from __future__ import unicode_literals
 import re
 import argparse
-from read_files import split_imdb_files, split_yahoo_files, split_agnews_files
-from word_level_process import word_process, get_tokenizer, text_to_vector_for_all
-from char_level_process import char_process, doc_process_for_all, get_embedding_dict
+from data_helper.data_helper import DataHelper
+from data_helper.word_level_process import get_tokenizer, text_to_vector_for_all
+from data_helper.char_level_process import doc_process_for_all, get_embedding_dict
 from neural_networks import word_cnn, char_cnn, bd_lstm, lstm
 import spacy
 import tensorflow as tf
@@ -14,7 +14,7 @@ from keras import backend as K
 nlp = spacy.load('en_core_web_sm')
 
 # # os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-config = tf.ConfigProto(allow_soft_placement=True) 
+config = tf.ConfigProto(allow_soft_placement=True)
 config.gpu_options.allow_growth = True
 K.set_session(tf.Session(config=config))
 
@@ -73,6 +73,16 @@ def get_mean_NE_rate(adversarial_text_path):
     return mean_NE_rate
 
 
+def process_adversarial_data(adv_text_filename, level, dataset, tokenizer):
+    adv_text = read_adversarial_file(adv_text_filename)
+    if level == 'word':
+        return text_to_vector_for_all(adv_text, tokenizer, dataset)
+    elif level == 'char':
+        return doc_process_for_all(adv_text, get_embedding_dict(), dataset)
+    else:
+        raise ValueError("Processing level must be 'word' or 'char'.")
+
+
 if __name__ == '__main__':
     args = parser.parse_args()
     clean_samples_cap = args.clean_samples_cap  # 1000
@@ -81,28 +91,10 @@ if __name__ == '__main__':
     dataset = args.dataset
     tokenizer = get_tokenizer(dataset)
 
-    # Read data set
-    x_train = y_train = x_test = y_test = None
-    test_texts = None
-    first_get_dataset = False
-    if dataset == 'imdb':
-        train_texts, train_labels, test_texts, test_labels = split_imdb_files()
-        if args.level == 'word':
-            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
-        elif args.level == 'char':
-            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
-    elif dataset == 'agnews':
-        train_texts, train_labels, test_texts, test_labels = split_agnews_files()
-        if args.level == 'word':
-            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
-        elif args.level == 'char':
-            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
-    elif dataset == 'yahoo':
-        train_texts, train_labels, test_texts, test_labels = split_yahoo_files()
-        if args.level == 'word':
-            x_train, y_train, x_test, y_test = word_process(train_texts, train_labels, test_texts, test_labels, dataset)
-        elif args.level == 'char':
-            x_train, y_train, x_test, y_test = char_process(train_texts, train_labels, test_texts, test_labels, dataset)
+    # Load and process data set
+    dataset = args.dataset
+    data_helper = DataHelper(dataset, args.level)
+    x_train = y_train = x_test = y_test = data_helper.processing()
 
     # Select the model and load the trained weights
     model = None
@@ -114,9 +106,9 @@ if __name__ == '__main__':
         model = char_cnn(dataset)
     elif args.model == "word_lstm":
         model = lstm(dataset)
-    model_path = r'./runs/{}/{}.dat'.format(dataset, args.model)
-    model.load_weights(model_path)
-    print('model path:', model_path)
+    model_filename = r'./runs/{}/{}.dat'.format(dataset, args.model)
+    model.load_weights(model_filename)
+    print('model path:', model_filename)
 
     # evaluate classification accuracy of model on clean samples
     scores_origin = model.evaluate(x_test[:clean_samples_cap], y_test[:clean_samples_cap])
@@ -124,20 +116,15 @@ if __name__ == '__main__':
     all_scores_origin = model.evaluate(x_test, y_test)
     print('all origin test_loss: %f, accuracy: %f' % (all_scores_origin[0], all_scores_origin[1]))
 
+    # Load and process adv data
+    adv_text_filename = r'./fool_result/{}/{}/adv_{}.txt'.format(dataset, args.model, str(clean_samples_cap))
+    print('adversarial file:', adv_text_filename)
+    x_adv = process_adversarial_data(adv_text_filename, args.level, dataset, tokenizer)
     # evaluate classification accuracy of model on adversarial examples
-    adv_text_path = r'./fool_result/{}/{}/adv_{}.txt'.format(dataset, args.model, str(clean_samples_cap))
-    print('adversarial file:', adv_text_path)
-    adv_text = read_adversarial_file(adv_text_path)
-
-    x_adv = None
-    if args.level == 'word':
-        x_adv = text_to_vector_for_all(adv_text, tokenizer, dataset)
-    elif args.level == 'char':
-        x_adv = doc_process_for_all(adv_text, get_embedding_dict(), dataset)
     score_adv = model.evaluate(x_adv[:clean_samples_cap], y_test[:clean_samples_cap])
     print('adv test_loss: %f, accuracy: %f' % (score_adv[0], score_adv[1]))
 
-    mean_sub_rate = get_mean_sub_rate(adv_text_path)
+    mean_sub_rate = get_mean_sub_rate(adv_text_filename)
     print('mean substitution rate:', mean_sub_rate)
-    mean_NE_rate = get_mean_NE_rate(adv_text_path)
+    mean_NE_rate = get_mean_NE_rate(adv_text_filename)
     print('mean NE rate:', mean_NE_rate)

@@ -2,8 +2,8 @@
 from config import config
 import copy
 import spacy
-from word_level_process import text_to_vector
-from char_level_process import doc_process, get_embedding_dict
+from data_helper.word_level_process import text_to_vector
+from data_helper.char_level_process import doc_process, get_embedding_dict
 
 nlp = spacy.load('en_core_web_sm')
 
